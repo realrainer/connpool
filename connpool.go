@@ -58,7 +58,7 @@ func New(config *Config) (*Pool, error) {
 	if config.CloseFunc == nil {
 		return nil, fmt.Errorf("close function must be defined")
 	}
-	if config.Initial > config.MaxIdle {
+	if config.Initial > config.MaxIdle || config.Initial > config.Max || config.MaxIdle > config.Max {
 		return nil, fmt.Errorf("invalid configuration")
 	}
 	p := Pool{
