@@ -36,6 +36,7 @@ type idleConnWrap struct {
 
 type Pool struct {
 	wg               sync.WaitGroup
+	workerMutex sync.Mutex
 	done             chan struct{}
 	idleConns        chan idleConnWrap
 	slots            chan struct{}
@@ -104,6 +105,9 @@ func (p *Pool) Get() (interface{}, error) {
 
 // Gets a connection from pool with context
 func (p *Pool) GetWithContext(ctx context.Context) (interface{}, error) {
+	p.workerMutex.Lock()
+	defer p.workerMutex.Unlock()
+
 	p.wg.Add(1)
 	defer p.wg.Done()
 
@@ -114,7 +118,7 @@ func (p *Pool) GetWithContext(ctx context.Context) (interface{}, error) {
 		return nil, ErrPoolClosed
 	default:
 	}
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -188,15 +192,26 @@ func (p *Pool) startWorker() {
 			case <-p.done:
 				return
 			case <-time.After(p.timeoutPrecision):
-			loop:
-				for {
-					select {
-					case c := <-p.idleConns:
+				checkIdle := func() {
+					p.workerMutex.Lock()
+					defer p.workerMutex.Unlock()
+
+					idleConns := make(chan idleConnWrap, p.maxIdle)
+				loop:
+					for {
+						select {
+						case c := <-p.idleConns:
+							idleConns <- c
+						default:
+							break loop
+						}
+					}
+					close(idleConns)
+					for c := range idleConns {
 						_ = p.putConn(c.conn, c.lastActiveAt)
-					default:
-						break loop
 					}
 				}
+				checkIdle()
 			}
 		}
 	}()
