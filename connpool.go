@@ -107,6 +107,14 @@ func (p *Pool) GetWithContext(ctx context.Context) (interface{}, error) {
 	p.wg.Add(1)
 	defer p.wg.Done()
 
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-p.done:
+		return nil, ErrPoolClosed
+	default:
+	}
+	
 	for {
 		select {
 		case <-ctx.Done():
@@ -115,12 +123,21 @@ func (p *Pool) GetWithContext(ctx context.Context) (interface{}, error) {
 			return nil, ErrPoolClosed
 		case c := <-p.idleConns:
 			return c.conn, nil
-		case <-p.slots:
-			if conn, err := p.factoryFunc(); err != nil {
-				p.slots <- struct{}{}
-				return nil, err
-			} else {
-				return conn, nil
+		default:
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-p.done:
+				return nil, ErrPoolClosed
+			case c := <-p.idleConns:
+				return c.conn, nil
+			case <-p.slots:
+				if conn, err := p.factoryFunc(); err != nil {
+					p.slots <- struct{}{}
+					return nil, err
+				} else {
+					return conn, nil
+				}
 			}
 		}
 	}
@@ -135,26 +152,29 @@ func (p *Pool) Put(conn interface{}) error {
 }
 
 func (p *Pool) putConn(conn interface{}, lastActiveAt time.Time) error {
-	if lastActiveAt.Before(time.Now().Add(-p.idleTimeout)) {
-		select {
-		case <-p.done:
-			return ErrPoolClosed
-		case p.slots <- struct{}{}:
-			return p.closeFunc(conn)
-		default:
-			return ErrPoolFull
-		}
-	} else {
+	select {
+	case <-p.done:
+		return ErrPoolClosed
+	default:
+	}
+
+	if lastActiveAt.After(time.Now().Add(-p.idleTimeout)) {
 		select {
 		case <-p.done:
 			return ErrPoolClosed
 		case p.idleConns <- idleConnWrap{conn: conn, lastActiveAt: lastActiveAt}:
 			return nil
-		case p.slots <- struct{}{}:
-			return p.closeFunc(conn)
 		default:
-			return ErrPoolFull
 		}
+	}
+
+	select {
+	case <-p.done:
+		return ErrPoolClosed
+	case p.slots <- struct{}{}:
+		return p.closeFunc(conn)
+	default:
+		return ErrPoolFull
 	}
 }
 
