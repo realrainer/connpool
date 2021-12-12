@@ -30,8 +30,8 @@ conn, err := pool.Get()
 // ...
 // do anything with conn (but don't close)
 
-// put connection to pool
-err := pool.Put(conn)
+// put connection to pool and not close
+err := pool.Put(conn, false)
 
 // get number of opened connections
 l := pool.Len()
