@@ -40,7 +40,7 @@ func TestPool_Put(t *testing.T) {
 				rerr = fmt.Errorf("error get connection: %w", err)
 			} else {
 				time.Sleep(time.Millisecond * time.Duration(rand.Int()%100))
-				if err := p.Put(conn); err != nil {
+				if err := p.Put(conn, false); err != nil {
 					rerr = err
 				}
 			}

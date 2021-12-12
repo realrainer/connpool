@@ -148,11 +148,16 @@ func (p *Pool) GetWithContext(ctx context.Context) (interface{}, error) {
 }
 
 // Puts connections to pool
-func (p *Pool) Put(conn interface{}) error {
+func (p *Pool) Put(conn interface{}, close bool) error {
 	p.wg.Add(1)
 	defer p.wg.Done()
 
-	return p.putConn(conn, time.Now())
+	t := time.Time{}
+	if !close {
+		t = time.Now()
+	}
+
+	return p.putConn(conn, t)
 }
 
 func (p *Pool) putConn(conn interface{}, lastActiveAt time.Time) error {
@@ -162,7 +167,7 @@ func (p *Pool) putConn(conn interface{}, lastActiveAt time.Time) error {
 	default:
 	}
 
-	if lastActiveAt.After(time.Now().Add(-p.idleTimeout)) {
+	if !lastActiveAt.IsZero() && lastActiveAt.After(time.Now().Add(-p.idleTimeout)) {
 		select {
 		case <-p.done:
 			return ErrPoolClosed
