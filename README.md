@@ -32,6 +32,10 @@ conn, err := pool.Get()
 
 // put connection to pool and not close
 err := pool.Put(conn, false)
+// or put connection to pool and close
+err := pool.Put(conn, true)
+
+// _IMPORTANT!_ putting into poll is necessary!
 
 // get number of opened connections
 l := pool.Len()
