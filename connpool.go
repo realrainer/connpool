@@ -25,6 +25,8 @@ type Config struct {
 	TimeoutPrecision time.Duration
 	// factory function
 	FactoryFunc func() (interface{}, error)
+	// check idle function
+	CheckIdleFunc func(interface{}) bool
 	// close function
 	CloseFunc func(interface{}) error
 }
@@ -36,12 +38,13 @@ type idleConnWrap struct {
 
 type Pool struct {
 	wg               sync.WaitGroup
-	workerMutex sync.Mutex
+	workerMutex      sync.Mutex
 	done             chan struct{}
 	idleConns        chan idleConnWrap
 	slots            chan struct{}
 	factoryFunc      func() (interface{}, error)
 	closeFunc        func(interface{}) error
+	checkIdleFunc    func(interface{}) bool
 	max              int
 	maxIdle          int
 	idleTimeout      time.Duration
@@ -63,14 +66,15 @@ func New(config *Config) (*Pool, error) {
 		return nil, fmt.Errorf("invalid configuration")
 	}
 	p := Pool{
-		done:        make(chan struct{}),
-		idleConns:   make(chan idleConnWrap, config.MaxIdle),
-		slots:       make(chan struct{}, config.Max),
-		factoryFunc: config.FactoryFunc,
-		closeFunc:   config.CloseFunc,
-		max:         config.Max,
-		maxIdle:     config.MaxIdle,
-		idleTimeout: config.IdleTimeout,
+		done:          make(chan struct{}),
+		idleConns:     make(chan idleConnWrap, config.MaxIdle),
+		slots:         make(chan struct{}, config.Max),
+		factoryFunc:   config.FactoryFunc,
+		checkIdleFunc: config.CheckIdleFunc,
+		closeFunc:     config.CloseFunc,
+		max:           config.Max,
+		maxIdle:       config.MaxIdle,
+		idleTimeout:   config.IdleTimeout,
 	}
 	if config.TimeoutPrecision == 0 {
 		p.timeoutPrecision = time.Second * 10
@@ -212,8 +216,15 @@ func (p *Pool) startWorker() {
 						}
 					}
 					close(idleConns)
+					now := time.Now()
 					for c := range idleConns {
-						_ = p.putConn(c.conn, c.lastActiveAt)
+						t := c.lastActiveAt
+						if p.checkIdleFunc != nil {
+							if !p.checkIdleFunc(c) {
+								t = now
+							}
+						}
+						_ = p.putConn(c.conn, t)
 					}
 				}
 				checkIdle()
