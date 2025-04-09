@@ -220,7 +220,7 @@ func (p *Pool) startWorker() {
 					for c := range idleConns {
 						t := c.lastActiveAt
 						if p.checkIdleFunc != nil {
-							if !p.checkIdleFunc(c) {
+							if !p.checkIdleFunc(c.conn) {
 								t = now
 							}
 						}
